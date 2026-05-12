@@ -1,0 +1,164 @@
+{
+  "info": {
+    "name": "Nistula Technical Assessment API",
+    "description": "Comprehensive Postman collection covering all scenarios for the Nistula Technical Assessment Webhook API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. System Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Webhook Testing Scenarios",
+      "item": [
+        {
+          "name": "Happy Path - Pre-Sales Availability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"booking_com\",\n  \"guest_name\": \"Priya Kapoor\",\n  \"message\": \"We are planning a getaway from April 20-24. Is Villa B1 available? How many bedrooms?\",\n  \"timestamp\": \"2024-05-12T10:00:00Z\",\n  \"booking_ref\": \"BOOK-005\",\n  \"property_id\": \"villa-b1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        },
+        {
+          "name": "Escalation - Complaint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"whatsapp\",\n  \"guest_name\": \"Vikram Singh\",\n  \"message\": \"There is NO hot water and we have guests arriving in 4 hours. This is completely unacceptable. I want a refund immediately.\",\n  \"timestamp\": \"2024-05-12T11:30:00Z\",\n  \"booking_ref\": \"NIS-2024-0891\",\n  \"property_id\": \"villa-b1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        },
+        {
+          "name": "Agent Review - General Enquiry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"instagram\",\n  \"guest_name\": \"Arjun Reddy\",\n  \"message\": \"Hi! Do you have any availability coming up? Also, do you offer any special packages?\",\n  \"timestamp\": \"2024-05-12T12:00:00Z\",\n  \"booking_ref\": \"DM-2026-001\",\n  \"property_id\": \"villa-b1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        },
+        {
+          "name": "Auto Send - Post-Sales Check-in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"whatsapp\",\n  \"guest_name\": \"Anjali Patel\",\n  \"message\": \"We are checking in tomorrow. Can you send the WiFi password and check-in instructions?\",\n  \"timestamp\": \"2024-05-12T13:00:00Z\",\n  \"booking_ref\": \"NIS-2024-0892\",\n  \"property_id\": \"villa-b1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        },
+        {
+          "name": "Agent Review - Special Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"airbnb\",\n  \"guest_name\": \"Rohan Kumar\",\n  \"message\": \"Is early check-in possible? We have a flight arriving at 11am.\",\n  \"timestamp\": \"2024-05-12T14:00:00Z\",\n  \"booking_ref\": \"NIS-2024-0893\",\n  \"property_id\": \"villa-b1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        },
+        {
+          "name": "Error - Invalid Payload (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"invalid_source\",\n  \"guest_name\": \"Test Guest\",\n  \"message\": \"Hello\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/message",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "message"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+}
