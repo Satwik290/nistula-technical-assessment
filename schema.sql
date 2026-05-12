@@ -1,107 +1,90 @@
 -- =========================================================================
--- NISTULA UNIFIED MESSAGING PLATFORM SCHEMA
+-- NISTULA UNIFIED MESSAGING PLATFORM SCHEMA (Updated)
 -- =========================================================================
 
--- Design Decision: We use UUIDs for primary keys to ensure global uniqueness,
--- especially important for a distributed system or when importing data from
--- external channels like WhatsApp, Booking.com, etc.
-
--- 1. Guests Table
--- Stores a single unified profile for a guest.
--- Hardest Design Decision: How to link guests across different channels?
--- Reason: A guest might message from WhatsApp (phone number) and Booking.com (email).
--- We need a unified profile. We'll store primary contact info here, but specific 
--- channel identities (like a WhatsApp number or Booking.com ID) should ideally 
--- be in a separate `guest_identities` table if there are many. For simplicity 
--- in this schema, we store the primary email and phone, and assume matching 
--- logic happens at the application layer to resolve to a `guest_id`.
+-- 1. GUESTS (deduplication across channels)
 CREATE TABLE guests (
-    guest_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    full_name VARCHAR(255) NOT NULL,
-    email VARCHAR(255),
-    phone_number VARCHAR(50),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  id UUID PRIMARY KEY,
+  email VARCHAR(255) UNIQUE,
+  phone VARCHAR(20),
+  name VARCHAR(255) NOT NULL,
+  source_first_contact VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 2. Properties Table
--- Stores details about properties.
+-- 2. PROPERTIES (Villa B1, etc.)
 CREATE TABLE properties (
-    property_id VARCHAR(100) PRIMARY KEY, -- e.g., 'villa-b1'
-    name VARCHAR(255) NOT NULL,
-    location VARCHAR(255),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  id VARCHAR(50) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  bedrooms INT,
+  max_guests INT,
+  base_rate_inr INT,
+  extra_guest_rate_inr INT,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 3. Reservations Table
--- Links a guest to a specific property and booking.
-CREATE TABLE reservations (
-    reservation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    guest_id UUID NOT NULL REFERENCES guests(guest_id) ON DELETE CASCADE,
-    property_id VARCHAR(100) NOT NULL REFERENCES properties(property_id),
-    booking_ref VARCHAR(100) UNIQUE NOT NULL, -- e.g., 'NIS-2024-0891'
-    check_in_date DATE,
-    check_out_date DATE,
-    status VARCHAR(50) DEFAULT 'confirmed',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 4. Conversations Table
--- Groups messages together. Linked to a guest and optionally a reservation.
--- Design Decision: A conversation might start before a reservation exists 
--- (pre-sales), so `reservation_id` is nullable.
-CREATE TABLE conversations (
-    conversation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    guest_id UUID NOT NULL REFERENCES guests(guest_id) ON DELETE CASCADE,
-    reservation_id UUID REFERENCES reservations(reservation_id) ON DELETE SET NULL,
-    status VARCHAR(50) DEFAULT 'open', -- 'open', 'closed', 'needs_attention'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 5. Messages Table
--- Stores all inbound and outbound messages across all channels.
+-- 3. MESSAGES (all inbound)
 CREATE TABLE messages (
-    message_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
-    direction VARCHAR(20) NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-    source_channel VARCHAR(50) NOT NULL, -- 'whatsapp', 'booking_com', 'airbnb', 'instagram', 'direct'
-    message_text TEXT NOT NULL,
-    
-    -- AI and Processing Metadata
-    query_type VARCHAR(100), -- e.g., 'pre_sales_availability', 'complaint'
-    confidence_score NUMERIC(3,2) CHECK (confidence_score >= 0.00 AND confidence_score <= 1.00),
-    action_taken VARCHAR(50), -- 'auto_send', 'agent_review', 'escalate'
-    processing_status VARCHAR(50) DEFAULT 'pending', -- 'ai_drafted', 'agent_edited', 'auto_sent', 'delivered'
-    
-    -- Agent Tracking
-    handled_by_agent_id UUID, -- References an internal users/agents table (omitted for brevity)
-    
-    -- Timestamps
-    channel_timestamp TIMESTAMP WITH TIME ZONE NOT NULL, -- When it was actually sent/received on the channel
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  id UUID PRIMARY KEY,
+  guest_id UUID REFERENCES guests(id),
+  property_id VARCHAR(50) REFERENCES properties(id),
+  source VARCHAR(50) NOT NULL,
+  source_message_id VARCHAR(255) UNIQUE,
+  message_text TEXT NOT NULL,
+  query_type VARCHAR(50),
+  booking_ref VARCHAR(100),
+  timestamp TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Indexes for performance
-CREATE INDEX idx_messages_conversation_id ON messages(conversation_id);
-CREATE INDEX idx_conversations_guest_id ON conversations(guest_id);
-CREATE INDEX idx_reservations_guest_id ON reservations(guest_id);
-CREATE INDEX idx_reservations_booking_ref ON reservations(booking_ref);
+-- 4. AI_RESPONSES (draft tracking)
+CREATE TABLE ai_responses (
+  id UUID PRIMARY KEY,
+  message_id UUID REFERENCES messages(id) UNIQUE,
+  drafted_reply TEXT NOT NULL,
+  confidence_score DECIMAL(3,2),
+  action VARCHAR(50),
+  agent_edited BOOLEAN DEFAULT FALSE,
+  final_reply TEXT,
+  was_auto_sent BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 5. CONVERSATIONS (thread linking)
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY,
+  guest_id UUID REFERENCES guests(id),
+  property_id VARCHAR(50) REFERENCES properties(id),
+  booking_ref VARCHAR(100),
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(guest_id, property_id, booking_ref)
+);
 
 -- =========================================================================
--- HARDEST DESIGN DECISION
+-- DESIGN RATIONALE
 -- =========================================================================
--- The hardest design decision was determining how to associate a message with a 
--- reservation versus a guest, particularly when handling omnichannel communications. 
--- In hospitality, a guest (e.g., Rahul) might inquire about a future booking on 
--- Instagram (no reservation yet) and later complain about a current stay on 
--- WhatsApp (linked to a reservation). 
 -- 
--- I chose to introduce a `conversations` table as an intermediary between `messages` 
--- and `guests/reservations`. This allows a conversation to exist independently of 
--- a reservation (for pre-sales inquiries) while still being tied to the `guest_id`. 
--- If the conversation turns into a booking, or relates to an existing booking, the 
--- `reservation_id` on the `conversations` table can be populated. This creates a 
--- clean hierarchy where we don't have to duplicate `guest_id` or `reservation_id` 
--- on every single message row, while keeping the data perfectly normalized.
+-- Why these 5 tables?
+-- These tables separate the core entities of the system:
+-- - Guests: Who is messaging.
+-- - Properties: What they are messaging about.
+-- - Messages: The actual content.
+-- - AI Responses: The drafts generated by Claude, separated to allow auditing and editing.
+-- - Conversations: Groups messages by guest and property/booking context.
+--
+-- Normalization level (3NF, why not higher?)
+-- The schema is in 3NF (Third Normal Form). All fields depend directly on the primary key.
+-- We don't normalize further (like splitting address from property) because it would add 
+-- unnecessary join complexity for a simple assessment.
+--
+-- Deduplication strategy for guests
+-- Guests are deduplicated by `email` (UNIQUE constraint). In a real system, we would also 
+-- check phone numbers or use fuzzy matching, but email uniqueness is a solid baseline.
+--
+-- How AI responses are audited
+-- The `ai_responses` table links 1:1 with `messages`. It stores the `drafted_reply` (original AI output), 
+-- `agent_edited` (boolean flag), and `final_reply` (what was actually sent). This allows us to compare 
+-- AI output vs human edits to improve the prompt over time.

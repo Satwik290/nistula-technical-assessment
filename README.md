@@ -1,101 +1,116 @@
 # Nistula Technical Assessment - Guest Message Handler
 
-This repository contains the completed Nistula Technical Assessment, including a webhook handler for guest messages, a PostgreSQL database schema design, and a system design thinking exercise.
-
-## Project Structure
-
-- `src/` - Contains the Express.js webhook API.
-  - `src/index.ts` - Application entry point.
-  - `src/routes/webhook.ts` - Webhook routing and logic.
-  - `src/services/claude.ts` - Integration with Anthropic's Claude API.
-- `schema.sql` - PostgreSQL schema design (Part 2).
-- `thinking.md` - Answers to the 3 AM scenario (Part 3).
+This repository contains the completed Nistula Technical Assessment, featuring an automated guest message handler, a database schema design, and a system design thinking exercise.
 
 ## Setup Instructions
 
-1. **Clone the repository:**
-   \`\`\`bash
-   git clone <repository-url>
-   cd nistula-technical-assessment
-   \`\`\`
-
-2. **Install Dependencies:**
-   Ensure you have Node.js installed, then run:
-   \`\`\`bash
+1. **Install Dependencies:**
+   ```bash
    npm install
-   \`\`\`
+   ```
 
-3. **Environment Variables:**
-   Copy the example environment file and add the provided Claude API key.
-   \`\`\`bash
-   cp .env.example .env
-   \`\`\`
-   Edit `.env` to include the `CLAUDE_API_KEY`.
+2. **Environment Variables:**
+   Create a `.env` file from `.env.example` and add your Anthropic API key:
+   ```bash
+   CLAUDE_API_KEY=sk-ant-...
+   PORT=3000
+   DATABASE_URL="postgresql://postgres:password@localhost:5432/nistula?schema=public"
+   ```
+
+3. **Database Setup (Docker):**
+   Start the PostgreSQL database using Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
 
 4. **Run the Server:**
-   To run in development mode with `ts-node`:
-   \`\`\`bash
+   ```bash
    npm run dev
-   \`\`\`
+   ```
    The server will start on `http://localhost:3000`.
-
-## Testing the API
-
-You can test the endpoint using `curl`:
-
-**Test 1: Pre-sales Availability (Should Auto Send)**
-\`\`\`bash
-curl -X POST http://localhost:3000/webhook/message \
--H "Content-Type: application/json" \
--d '{
-   "source": "whatsapp",
-   "guest_name": "Rahul Sharma",
-   "message": "Is the villa available from April 20 to 24? What is the rate for 2 adults?",
-   "timestamp": "2026-05-05T10:30:00Z",
-   "booking_ref": "NIS-2024-0891",
-   "property_id": "villa-b1"
-}'
-\`\`\`
-
-**Test 2: Complaint (Should Escalate)**
-\`\`\`bash
-curl -X POST http://localhost:3000/webhook/message \
--H "Content-Type: application/json" \
--d '{
-   "source": "whatsapp",
-   "guest_name": "Rahul Sharma",
-   "message": "The AC is broken and the room is hot. Fix it now.",
-   "timestamp": "2026-05-05T10:30:00Z",
-   "booking_ref": "NIS-2024-0891",
-   "property_id": "villa-b1"
-}'
-\`\`\`
-
-**Test 3: General Enquiry (Should likely result in agent_review or escalate as pets are not mentioned in context)**
-\`\`\`bash
-curl -X POST http://localhost:3000/webhook/message \
--H "Content-Type: application/json" \
--d '{
-   "source": "whatsapp",
-   "guest_name": "Rahul Sharma",
-   "message": "Do you allow pets at the villa?",
-   "timestamp": "2026-05-05T10:30:00Z",
-   "booking_ref": "NIS-2024-0891",
-   "property_id": "villa-b1"
-}'
-\`\`\`
 
 ## Confidence Scoring Logic
 
-The confidence scoring determines the `action` field in the final JSON response. Since LLMs process natural language, traditional deterministic confidence scoring isn't applicable. Instead, we instruct Claude via the System Prompt to output a `confidence_score` between 0 and 1 based on how well the provided `Property Context` answers the guest's query.
+We use a **Multi-Factor Scoring Algorithm** (Decision Tree) to determine the confidence score and the resulting action:
 
-- **0.90 - 1.0 (auto_send):** The context perfectly answers the question (e.g., standard check-in times, explicit availability).
-- **0.60 - 0.89 (agent_review):** The context partially answers the question, or the query is ambiguous and a human should verify the drafted reply.
-- **Below 0.60 (escalate):** The context does not answer the question, or the query is a `complaint` or a complex `special_request`. 
+1. **Baseline Classification**: A rule-based keyword match checks for high-risk words (e.g., "broken", "refund") to establish a baseline type and confidence.
+2. **Claude API Evaluation**: The message is sent to Claude with the property context. Claude returns a classification and its own confidence score.
+3. **Decision Tree Logic**:
+   - **Complaints**: If either baseline or Claude detects a complaint, the score is forced to be low (< 0.4) and the action is forced to `escalate`.
+   - **Agreement Boost**: If Claude's classification matches the baseline keyword match, confidence is boosted by +0.05.
+   - **Missing Context Penalty**: If Claude's reply indicates it doesn't know the answer (due to missing context in the prompt), confidence is capped at 0.5.
 
-**Safety Net:** As an additional programmatic safety measure, if Claude classifies the message as a `complaint` but erroneously assigns a high confidence score, the server code forces the confidence score to `0.5`, ensuring the action resolves to `escalate`.
+### Scoring Breakdown Examples:
+- **Availability Query** (Context contains answer): Score ~0.90 -> `auto_send`
+- **Ambiguous Query** (Context partially covers): Score ~0.70 -> `agent_review`
+- **Complaint** (AC broken): Score <= 0.40 -> `escalate`
 
-### Action Mapping:
-- `confidence_score > 0.85` AND not a complaint ➔ `auto_send`
-- `0.60 <= confidence_score <= 0.85` AND not a complaint ➔ `agent_review`
-- `confidence_score < 0.60` OR query is `complaint` ➔ `escalate`
+## Architecture Decisions
+
+- **Why Node vs Python?** Node.js with Express and TypeScript was chosen for its excellent async performance handling I/O (like API calls) and strong type safety.
+- **Why this project structure?** We split the pipeline into `messageProcessor` (logic), `propertyContext` (data), and `claudePrompt` (integration) to keep the code modular and testable (Separation of Concerns).
+- **What would you do differently with more time?** I would implement the actual Prisma database writes in the webhook handler to persist the messages and responses as per the designed schema.
+
+## Testing
+
+To run the health check:
+```bash
+curl http://localhost:3000/health
+```
+
+To test the webhook, use the following curl commands:
+
+**Test 1: Pre-Sales Availability (Happy Path)**
+```bash
+curl -X POST http://localhost:3000/webhook/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "whatsapp",
+    "guest_name": "Rahul Sharma",
+    "message": "Is the villa available from April 20 to 24? What is the rate for 2 adults?",
+    "timestamp": "2026-05-05T10:30:00Z",
+    "booking_ref": "NIS-2024-0891",
+    "property_id": "villa-b1"
+  }'
+```
+
+**Test 2: Complaint (Escalation Path)**
+```bash
+curl -X POST http://localhost:3000/webhook/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "whatsapp",
+    "guest_name": "Vikram Singh",
+    "message": "There is NO hot water and we have guests arriving in 4 hours. This is completely unacceptable. I want a refund immediately.",
+    "timestamp": "2026-05-05T10:30:00Z",
+    "booking_ref": "NIS-2024-0891",
+    "property_id": "villa-b1"
+  }'
+```
+
+## API Documentation
+
+### Endpoint: `POST /webhook/message`
+
+**Request Schema (Validated via Zod):**
+```json
+{
+  "source": "whatsapp" | "booking_com" | "airbnb" | "instagram" | "direct",
+  "guest_name": "string",
+  "message": "string",
+  "timestamp": "string",
+  "booking_ref": "string",
+  "property_id": "string"
+}
+```
+
+**Response Schema:**
+```json
+{
+  "message_id": "uuid",
+  "query_type": "string",
+  "drafted_reply": "string",
+  "confidence_score": number,
+  "action": "auto_send" | "agent_review" | "escalate"
+}
+```

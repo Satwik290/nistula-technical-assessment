@@ -1,0 +1,78 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Guest {
+  id                  String   @id @default(uuid()) @db.Uuid
+  email               String?  @unique
+  phone               String?
+  name                String
+  source_first_contact String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  messages            Message[]
+  conversations       Conversation[]
+}
+
+model Property {
+  id                  String   @id // e.g., 'villa-b1'
+  name                String
+  bedrooms            Int?
+  max_guests          Int?
+  base_rate_inr       Int?
+  extra_guest_rate_inr Int?
+  created_at          DateTime @default(now())
+  messages            Message[]
+  conversations       Conversation[]
+}
+
+model Message {
+  id                String   @id @default(uuid()) @db.Uuid
+  guest_id          String?  @db.Uuid
+  property_id        String?
+  source            String
+  source_message_id  String?  @unique
+  message_text       String
+  query_type         String?
+  booking_ref        String?
+  timestamp          DateTime?
+  created_at        DateTime @default(now())
+
+  guest             Guest?   @relation(fields: [guest_id], references: [id])
+  property          Property? @relation(fields: [property_id], references: [id])
+  ai_response       AiResponse?
+}
+
+model AiResponse {
+  id                String   @id @default(uuid()) @db.Uuid
+  message_id        String   @unique @db.Uuid
+  drafted_reply      String
+  confidence_score   Decimal? @db.Decimal(3, 2)
+  action            String
+  agent_edited      Boolean  @default(false)
+  final_reply       String?
+  was_auto_sent     Boolean  @default(false)
+  created_at        DateTime @default(now())
+
+  message           Message  @relation(fields: [message_id], references: [id])
+}
+
+model Conversation {
+  id          String   @id @default(uuid()) @db.Uuid
+  guest_id    String   @db.Uuid
+  property_id String
+  booking_ref String?
+  status      String   @default("active")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  guest       Guest    @relation(fields: [guest_id], references: [id])
+  property    Property @relation(fields: [property_id], references: [id])
+
+  @@unique([guest_id, property_id, booking_ref])
+}
