@@ -6,7 +6,7 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.string().default('3000'),
   CLAUDE_API_KEY: z.string().min(1, "CLAUDE_API_KEY is required"),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  DATABASE_URL: z.string().optional().default(''),
 });
 
 const _env = envSchema.safeParse(process.env);
@@ -17,3 +17,7 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+if (!env.DATABASE_URL) {
+  console.warn('⚠️  DATABASE_URL not configured. Database writes will be skipped.');
+}

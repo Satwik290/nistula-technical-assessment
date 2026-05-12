@@ -6,25 +6,31 @@ import { WebhookPayloadDTO } from '../models/webhook.dto';
 
 export class WebhookController {
   public async handleMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const messageId = uuidv4(); // Generate FIRST
+
     try {
       const payload: WebhookPayloadDTO = req.body; // Guaranteed by validation middleware
 
-      // Process
-      const result = await messageProcessingService.processMessagePipeline(payload);
-
-      const message_id = uuidv4();
+      // Process and pass message_id through pipeline
+      const result = await messageProcessingService.processMessagePipeline({
+        ...payload,
+        _messageId: messageId, // Add as internal field
+      });
 
       // Construct final response
       const responseData = {
-        message_id,
+        message_id: messageId,
         query_type: result.query_type,
         drafted_reply: result.drafted_reply,
         confidence_score: result.confidence_score,
         action: result.action
       };
 
-      // Repository call (mocked)
-      await messageRepository.saveMessage(responseData);
+      // Persist to database with same messageId
+      await messageRepository.saveMessage({
+        ...responseData,
+        ...payload,
+      });
 
       res.status(200).json(responseData);
     } catch (error) {

@@ -24,38 +24,72 @@ Respond ONLY with valid JSON:
 }`;
 
 export class ClaudeService {
+  private async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        const isLastAttempt = attempt === maxRetries;
+        const isRateLimitError = error.status === 429;
+        
+        if (!isRateLimitError || isLastAttempt) {
+          throw error;
+        }
+
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.warn(`[Claude API] Rate limited. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    throw new Error('Max retries reached');
+  }
+
   public async analyzeMessage(guestName: string, messageText: string): Promise<ClaudeResponseDTO> {
-    // Edge case: handle long messages
     let processedMessage = messageText;
     if (messageText.length > 2000) {
       processedMessage = messageText.substring(0, 2000) + "... [Message truncated for length]";
     }
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Guest Name: ${guestName}\nMessage: ${processedMessage}`
-        }
-      ],
-      temperature: 0.1,
-    });
+    try {
+      const response = await this.retryWithBackoff(() =>
+        anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages: [{
+            role: 'user',
+            content: `Guest Name: ${guestName}\nMessage: ${processedMessage}`
+          }],
+          temperature: 0.1,
+        })
+      );
 
-    const contentBlock = response.content[0];
-    if (contentBlock.type !== 'text') {
-      throw new Error('Unexpected response type from Claude');
+      const contentBlock = response.content[0];
+      if (contentBlock.type !== 'text') {
+        throw new Error('Unexpected response type from Claude');
+      }
+
+      const responseText = contentBlock.text;
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Failed to parse JSON from Claude response');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // Validate response structure
+      if (!parsed.query_type || !parsed.drafted_reply || typeof parsed.confidence_score !== 'number') {
+        throw new Error('Claude response missing required fields');
+      }
+
+      return parsed as ClaudeResponseDTO;
+    } catch (error: any) {
+      console.error('[Claude API] Error:', error.message);
+      throw new Error(`Claude analysis failed: ${error.message}`);
     }
-
-    const responseText = contentBlock.text;
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to parse JSON from Claude response');
-    }
-
-    return JSON.parse(jsonMatch[0]) as ClaudeResponseDTO;
   }
 }
 

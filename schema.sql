@@ -4,7 +4,7 @@
 
 -- 1. GUESTS (deduplication across channels)
 CREATE TABLE guests (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) UNIQUE,
   phone VARCHAR(20),
   name VARCHAR(255) NOT NULL,
@@ -88,3 +88,13 @@ CREATE TABLE conversations (
 -- The `ai_responses` table links 1:1 with `messages`. It stores the `drafted_reply` (original AI output), 
 -- `agent_edited` (boolean flag), and `final_reply` (what was actually sent). This allows us to compare 
 -- AI output vs human edits to improve the prompt over time.
+
+-- =========================================================================
+-- INDEXES
+-- =========================================================================
+CREATE INDEX idx_messages_guest_id ON messages(guest_id);
+CREATE INDEX idx_messages_property_id ON messages(property_id);
+CREATE INDEX idx_messages_timestamp ON messages(timestamp DESC);
+CREATE INDEX idx_messages_booking_ref ON messages(booking_ref);
+CREATE INDEX idx_conversations_guest_property ON conversations(guest_id, property_id);
+CREATE INDEX idx_ai_responses_message_id ON ai_responses(message_id);
