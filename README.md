@@ -325,7 +325,7 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-CLAUDE_API_KEY=sk-ant-api03-<your-key-here>
+CLAUDE_API_KEY=sk-<your-key-here>
 PORT=3000
 DATABASE_URL="postgresql://postgres:password@localhost:5434/nistula?schema=public"
 ```
